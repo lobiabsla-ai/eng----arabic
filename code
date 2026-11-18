@@ -1,0 +1,130 @@
+import keyboard
+import ctypes
+from wordfreq import zipf_frequency
+
+user32 = ctypes.windll.user32
+
+ARABIC = user32.LoadKeyboardLayoutW("00000401", 1)
+ENGLISH = user32.LoadKeyboardLayoutW("00000409", 1)
+
+en_to_ar = {
+    'q':'ض','w':'ص','e':'ث','r':'ق','t':'ف',
+    'y':'غ','u':'ع','i':'ه','o':'خ','p':'ح',
+    '[':'ج',']':'د','a':'ش','s':'س','d':'ي',
+    'f':'ب','g':'ل','h':'ا','j':'ت','k':'ن',
+    'l':'م',';':'ك',"'":'ط','z':'ئ','x':'ء',
+    'c':'ؤ','v':'ر','b':'لا','n':'ى','m':'ة',
+    ',':'و','.':'ز','/':'ظ'
+}
+
+ar_to_en = {
+    'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t',
+    'غ':'y','ع':'u','ه':'i','خ':'o','ح':'p',
+    'ج':'[','د':']','ش':'a','س':'s','ي':'d',
+    'ب':'f','ل':'g','ا':'h','ت':'j','ن':'k',
+    'م':'l','ك':';','ط':"'",'ئ':'z','ء':'x',
+    'ؤ':'c','ر':'v','ى':'n','ة':'m','و':',',
+    'ز':'.','ظ':'/'
+}
+
+buffer = ""
+busy = False
+
+def convert(text, mapping):
+    result = ""
+    i = 0
+
+    while i < len(text):
+        if text[i:i+2] == "لا" and mapping == ar_to_en:
+            result += "b"
+            i += 2
+        else:
+            result += mapping.get(text[i], text[i])
+            i += 1
+
+    return result
+
+def score(text, language):
+    words = text.split()
+
+    if not words:
+        return 0
+
+    return sum(
+        zipf_frequency(word, language)
+        for word in words
+    ) / len(words)
+
+def detect(text):
+    arabic = convert(text.lower(), en_to_ar)
+    english = convert(text, ar_to_en)
+
+    ar_score = score(arabic, "ar")
+    en_score = score(text.lower(), "en")
+    converted_en_score = score(english.lower(), "en")
+    original_ar_score = score(text, "ar")
+
+    if ar_score >= 2.5 and ar_score > en_score + 0.5:
+        return arabic, ARABIC
+
+    if converted_en_score >= 2.5 and converted_en_score > original_ar_score + 0.5:
+        return english, ENGLISH
+
+    return None, None
+
+def correct():
+    global buffer, busy
+
+    text = buffer.strip()
+    buffer = ""
+
+    if len(text) < 3:
+        return
+
+    result, layout = detect(text)
+
+    if result is None:
+        print("Not sure about the language")
+        return
+
+    busy = True
+
+    for _ in text:
+        keyboard.press_and_release("backspace")
+
+    keyboard.write(result)
+    user32.ActivateKeyboardLayout(layout, 0)
+
+    busy = False
+
+    print("Corrected:", result)
+
+def on_key(event):
+    global buffer
+
+    if busy or event.event_type != "down":
+        return
+
+    key = event.name
+
+    if len(key) == 1:
+        buffer += key
+
+    elif key == "space":
+        buffer += " "
+
+    elif key == "backspace":
+        buffer = buffer[:-1]
+
+    elif key in ("enter", "tab"):
+        buffer = ""
+
+keyboard.add_hotkey("f8", correct)
+keyboard.hook(on_key)
+
+print("SMART KEYBOARD")
+print("F8 = Correct text")
+print("ESC = Exit")
+print("Ready!")
+
+keyboard.wait("esc")
